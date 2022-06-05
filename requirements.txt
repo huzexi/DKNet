@@ -1,0 +1,6 @@
+h5py>=3.7.0
+numpy>=1.22.4
+PyPrind>=2.11.3
+opencv-python>=4.1.0.25
+scikit-image>=0.16
+torch>=1.10.0
