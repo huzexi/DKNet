@@ -1,6 +1,8 @@
 venv/
 data/
 tmp/
+ckp/
+workdir/
 
 ###### Python ######
 # Byte-compiled / optimized / DLL files

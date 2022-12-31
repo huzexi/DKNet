@@ -1,5 +1,4 @@
-from collections import Iterable
-from os import path
+from os import path, cpu_count
 
 __all__ = ['DefaultConfig']
 
@@ -11,6 +10,29 @@ class DefaultConfig:
     dir_tmp_train = path.join(dir_tmp, 'train')
     dir_tmp_test = path.join(dir_tmp, 'test')
     dir_ckp = path.join('ckp')
+
+    # Training
+    train_batch_sz = 2
+    train_ep = 5000
+    train_ckp_ep = [
+        [(1, 600), 10],
+        [(600, train_ep), 5]  # After Epoch 400, make checkpoint for every 5 epochs
+    ]
+    train_ep_iter = 1000
+    train_patch_sz = (32, 32)  # Spatial size of training samples
+    train_lr = 1e-4
+    train_aug = {
+        'flip': True,
+        'rotate': True,
+    }
+
+    # Valid
+    valid = True
+    valid_save_best = True
+    valid_force_save_ep = 250  # Forcedly saving model periodically
+    valid_mp = cpu_count() // 2
+    valid_slice_n = 4
+    valid_slice_offset = 15
 
     # Test
     test_mp = 0
@@ -25,12 +47,3 @@ class DefaultConfig:
     color = True
     net = 'DKNet'
 
-    # Functions
-    @classmethod
-    def get_train_ckp_ep(cls, ep):
-        if not isinstance(cls.train_ckp_ep, Iterable):
-            return cls.train_ckp_ep
-        for it in cls.train_ckp_ep:
-            if ep in range(it[0][0], it[0][1]):
-                return it[1]
-        return cls.train_ckp_ep[0][1]

@@ -15,7 +15,7 @@ Most dependencies have been listed in `requirements.txt`, simply run the followi
 ```bash
 pip install -r requirements.txt
 ```
-The code is tested with Python 3.8.10 and Ubuntu 20.04.
+The code is tested with Python 3.8 and 3.10 and Ubuntu 22.04.
 
 ### Data preparation
 Modify the paths in `component/dataset/LytroDataset.py` to the corresponding locations, and run the following command:
