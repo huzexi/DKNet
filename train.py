@@ -3,13 +3,15 @@ import sys
 from datetime import datetime
 from os import path
 from time import time
+import random
 
 import numpy as np
-import pyprind
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 from component import History, logger, set_log_file
 from component.config import CustomConfig as config, config_to_json
@@ -32,6 +34,8 @@ def main():
 
     # Initialization
     torch.manual_seed(0)
+    random.seed(0)
+    np.random.seed(0)
 
     # Continue training
     to_continue = args.continue_name != ''
@@ -45,8 +49,8 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=config.train_lr)
 
     # Losses
-    crit_pri = nn.MSELoss()
-    name_pri = 'MSEloss'  # Primary loss
+    criterion = nn.MSELoss()
+    criterion_name = 'MSEloss'
 
     # Setting device
     use_cuda = torch.cuda.is_available() and args.gpuid != "-1"
@@ -54,13 +58,14 @@ def main():
     if use_cuda:
         torch.cuda.set_device(device)
     model = model.to(device)
-    crit_pri = crit_pri.to(device)
+    criterion = criterion.to(device)
 
-    # Checkpoint and history
-    cwd = get_dir(config.dir_ckp, task_name)
+    # Checkpoint, Tensorboard and CSV History
+    cwd = get_dir(config.dir_workdir, 'train', task_name)
     pth_ckp = path.join(cwd, "%05d.pt")
-    his_train = History(path.join(cwd, 'history_train.csv'), [name_pri, 'PSNR', 'time'])
-    his_valid = History(path.join(cwd, 'history_valid.csv'), [name_pri, 'PSNR', 'SSIM', 'time'])
+    tb_writer = SummaryWriter(path.join(cwd))
+    his_train = History(path.join(cwd, 'history_train.csv'), [criterion_name, 'PSNR', 'time'])
+    his_valid = History(path.join(cwd, 'history_valid.csv'), [criterion_name, 'PSNR', 'SSIM', 'time'])
     if not to_continue:
         his_train.init()
         his_valid.init()
@@ -68,15 +73,14 @@ def main():
     logger.info("Task name: %s" % task_name)
     logger.info("Git commit version: %s" % get_git_hash())
 
-    # Dataset
-    ## Train
+    # Dataset for train
     train_ds = get_dataset(config.dataset, config, BaseDataset.MODE_TRAIN)
     train_loader = DataLoader(dataset=train_ds,
-                              num_workers=5,
+                              num_workers=config.train_workers,
                               batch_size=config.train_batch_sz,
                               pin_memory=True,
                               shuffle=False)
-    # Valid
+    # Dataset for validation
     if config.valid:
         valid_ds = get_dataset(config.dataset, config, BaseDataset.MODE_VALID)
         valid_loader = DataLoader(dataset=valid_ds,
@@ -92,13 +96,13 @@ def main():
             }
         else:
             slice_cfg = None
-        validor = Evaluator(loader=valid_loader, model=model, shave=config.shave, criterion=crit_pri,
+        validor = Evaluator(loader=valid_loader, model=model, shave=config.shave, criterion=criterion,
                             to_monitor=True, mp=config.valid_mp, slice_cfg=slice_cfg)
         logger.info("Pre-testing the model.")
         validor.test_once()
 
     # Iterations
-    best = {name_pri: sys.float_info.max}
+    best = {criterion_name: sys.float_info.max}
     if to_continue:
         ep_start = args.continue_epoch
         model.load_state_dict(torch.load(pth_ckp % ep_start, map_location=device))
@@ -113,30 +117,34 @@ def main():
         model.train()
         train_ckp_ep = config.get_train_ckp_ep(ep)
 
-        bar = pyprind.ProgBar(iterations=config.train_ep_iter,
-                              title="Training %s Epoch[%05d]" % (task_name, ep),
-                              width=80)
+        pbar = tqdm(total=config.train_ep_iter,
+                    desc="%s-Epoch[%05d]" % (task_name, ep))
         loss_train = np.zeros((len(train_loader), 2))
         t_train = time()
         for i, (x, gt) in enumerate(train_loader):
+            # Forward propagation
             x, gt = x.to(device), gt.to(device)
             optimizer.zero_grad()
             pred = model(x)
-            loss = crit_pri(pred, gt)
+            loss = criterion(pred, gt)
             loss_train[i, 0] = loss.item()
             loss_train[i, 1] = mse2psnr(loss_train[i, 0])
-
+            # Backward propagation
             loss.backward()
             optimizer.step()
+            # Update
+            pbar.update()
 
-            bar.update()
-
+        # After an epoch
         t_train = time() - t_train
         t_train = t_train * 1000 / len(train_loader)
         loss_train = loss_train.mean(0)
-        bar.stop()
-        logger.info('Epoch[%05d]: %s: %.8f, PSNR: %.4f, Time: %dms/step' %
-                    (ep, name_pri, loss_train[0], loss_train[1], t_train))
+        pbar.close()
+        logger.info('Epoch[%05d] Train: %s: %.8f, PSNR: %.4f, Time: %dms/step' %
+                    (ep, criterion_name, loss_train[0], loss_train[1], t_train))
+        tb_writer.add_scalar(f"Train/{criterion_name}", loss_train[0], ep)
+        tb_writer.add_scalar(f"Train/PSNR", loss_train[1], ep)
+        tb_writer.add_scalar(f"Train/speed (ms/step)", t_train, ep)
         his_train.write(ep,
                         ["%.8f" % loss_train[0], '%.2f' % loss_train[1],
                          "%d" % t_train])  # Primary, display losses, time
@@ -154,17 +162,19 @@ def main():
                 t_valid = time() - t_valid
                 t_valid = t_valid * 1000
 
-                loss_crit = np.array([res['criterion'] for res in res_lst]).mean(0)
-                loss_psnr = np.array([res['psnr'] for res in res_lst]).mean(0)
-                loss_ssim = np.array([res['ssim'] for res in res_lst]).mean(0)
-                is_best = loss_crit < best[name_pri]
-                best = {name_pri: loss_crit, 'epoch': ep} if is_best else best
+                res_crit = np.array([res['criterion'] for res in res_lst]).mean(0)
+                res_psnr = np.array([res['psnr'] for res in res_lst]).mean(0)
+                res_ssim = np.array([res['ssim'] for res in res_lst]).mean(0)
+                is_best = res_crit < best[criterion_name]
+                best = {criterion_name: res_crit, 'epoch': ep} if is_best else best
 
-                logger.info("--------------------------------------------------------------------------------------------")
-                logger.info("Validation of Epoch[%05d]: %s: %.8f, PSNR: %.2f, SSIM: %.4f. Best epoch is %d epochs ago." %
-                            (ep, name_pri, loss_crit, loss_psnr, loss_ssim, ep - best['epoch']))
-                logger.info("--------------------------------------------------------------------------------------------")
-                his_valid.write(ep, ["%.8f" % loss_crit, "%.2f" % loss_psnr, "%.4f" % loss_ssim,
+                logger.info("Epoch[%05d] Valid: %s: %.8f, PSNR: %.2f, SSIM: %.4f. Best epoch is %d epochs ago." %
+                            (ep, criterion_name, res_crit, res_psnr, res_ssim, ep - best['epoch']))
+                tb_writer.add_scalar(f"Valid/{criterion_name}", res_crit, ep)
+                tb_writer.add_scalar(f"Valid/PSNR", res_psnr, ep)
+                tb_writer.add_scalar(f"Valid/SSIM", res_ssim, ep)
+                tb_writer.add_scalar(f"Valid/speed (ms/image)", t_valid, ep)
+                his_valid.write(ep, ["%.8f" % res_crit, "%.2f" % res_psnr, "%.4f" % res_ssim,
                                      "%d" % t_valid])
 
                 if not is_best and config.valid_save_best and (ep - ep_start) % config.valid_force_save_ep != 0:
@@ -173,6 +183,8 @@ def main():
             # Save checkpoint
             torch.save(model.state_dict(), pth_ckp % ep)
             logger.info("Model saved: %s" % (pth_ckp % ep))
+
+    tb_writer.flush()
 
 
 if __name__ == '__main__':

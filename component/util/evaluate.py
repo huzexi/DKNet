@@ -7,7 +7,7 @@ from time import sleep
 import cv2
 import math
 import numpy as np
-import pyprind
+from tqdm import tqdm
 import torch
 from math import log10
 from skimage.metrics import peak_signal_noise_ratio as psnr
@@ -71,7 +71,8 @@ def net_infer(batch_x, model, slice_cfg=None):
 
 
 class Evaluator:
-    def __init__(self, loader, model=None, shave=None, criterion=None, mp=1, slice_cfg=None, to_monitor=True, render_bgr=None):
+    def __init__(self, loader, model=None, shave=None, criterion=None, mp=1, slice_cfg=None,
+                 to_monitor=True, render_bgr=None):
         self.loader = loader
         self.model = model
         self.shave = shave
@@ -90,9 +91,7 @@ class Evaluator:
         if self.mp > 1:
             self._mp_init()
         else:
-            bar = pyprind.ProgBar(iterations=len(self.loader),
-                                  title="Evaluating",
-                                  width=100)
+            pbar = tqdm(total=len(self.loader), desc="Evaluating")
 
         # Iterate
         for ids, (batch_x, batch_gt) in enumerate(self.loader):
@@ -117,7 +116,7 @@ class Evaluator:
                 self.queue_task.put((ids, batch_pred[0], batch_gt[0]))
             else:
                 res_list[ids]['psnr'], res_list[ids]['ssim'] = calc_score_lf(batch_pred[0], batch_gt[0], mp=6)
-                bar.update(len(batch_x))
+                pbar.update(len(batch_x))
 
             # Render BGR
             if self.render_bgr:
@@ -131,7 +130,7 @@ class Evaluator:
                 res = self.queue_res.get()
                 res_list[res[0]].update({'psnr': res[1], 'ssim': res[2]})
         else:
-            bar.stop()
+            pbar.close()
 
         return res_list
 
@@ -178,16 +177,14 @@ class Evaluator:
 
     @staticmethod
     def monitor(sts):
-        bar = pyprind.ProgBar(iterations=sts['all'],
-                              title="Evaluating (MP)",
-                              width=100)
+        pbar = tqdm(total=sts['all'], desc="Evaluating (MP)")
         while True:
             if sts['count'] is None:
                 break
-            bar.update(sts['count'])
+            pbar.update(sts['count'])
             sts['count'] = 0
             sleep(1)
-        bar.stop()
+        pbar.close()
 
 
 def calc_score_lf(pred, gt, mp=1):
