@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from os import path
+import random
 
 import h5py
 import numpy as np
@@ -94,8 +95,8 @@ class BaseDataset(Dataset):
         if patch_sz is not None:
             # Crop
             sz_s = lr.shape[-2:]
-            sx = torch.randint(0, sz_s[1] - patch_sz[1] + 1, (1,))
-            sy = torch.randint(0, sz_s[0] - patch_sz[0] + 1, (1,))
+            sx = random.randint(0, sz_s[1] - patch_sz[1])
+            sy = random.randint(0, sz_s[0] - patch_sz[0])
             ratio = np.array(hr.shape[-2:]) // lr.shape[-2:]
             region = np.array([
                 [sy, sy + patch_sz[0]],
@@ -115,14 +116,14 @@ class BaseDataset(Dataset):
         return hr, lr
 
     @classmethod
-    def data_augment(cls, lf, aug_config):
+    def data_augment(cls, lfs, aug_config):
         to = torch.randint(0, 2, (2,))
         to_flip = aug_config['flip'] and to[0] == 1
         to_rotate = aug_config['rotate'] and to[1] == 1
-        lf = flip(lf) if to_flip else lf
-        lf = rotate(lf) if to_rotate else lf
+        lfs = flip(lfs) if to_flip else lfs
+        lfs = rotate(lfs) if to_rotate else lfs
 
-        return lf
+        return lfs
 
     @classmethod
     def get_xy(cls, lf, a_in):

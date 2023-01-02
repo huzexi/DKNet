@@ -39,7 +39,7 @@ def main():
                                  shuffle=False
                                  )
         names = test_ds.names
-        cwd = get_dir(config.dir_tmp, 'test_model')
+        cwd = get_dir(config.dir_workdir, 'test')
 
         if config.test_slice_n > 1:
             slice_cfg = {

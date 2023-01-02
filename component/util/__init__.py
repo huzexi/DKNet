@@ -16,11 +16,11 @@ def get_dir(*pth):
 def get_git_hash():
     try:
         return subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip().decode()
-    except:
+    except Exception:
         return None
 
 
-def im2double(im, dtype='float64'):
+def im2double(im, dtype='float32'):
     info = np.iinfo(im.dtype)
     return im.astype(dtype) / info.max
 
@@ -226,7 +226,7 @@ def flatten_a(lf):
     shape = lf.shape
     sz_a = shape[-4:-2]
     sz_s = shape[-2:]
-    return lf.reshape(shape[:-4] + (sz_a[0]*sz_a[1],) + sz_s)
+    return lf.reshape(shape[:-4] + (sz_a[0] * sz_a[1],) + sz_s)
 
 
 def sync_device(src, dst):

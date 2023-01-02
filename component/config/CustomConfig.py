@@ -4,4 +4,4 @@ __all__ = ['CustomConfig']
 
 
 class CustomConfig(DefaultConfig):
-    pass
+    dir_h5 = './data'
