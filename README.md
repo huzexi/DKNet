@@ -33,7 +33,12 @@ The code is tested with Python 3.8/3.10 and Ubuntu 20.04/22.04.
 ### Data preparation
 This step is to loading the huge LF images into HDF5 files, which simplifies the process and accelerate the speed when training.
 
-Modify the paths in  `component/dataset/LytroDataset.py` to the corresponding locations, e.g. `Stanford` and `SIGASIA16`, and run the following command:
+Refer to the following webpages to download the datasets firstly:
+
+1. `SIGASIA16`: https://cseweb.ucsd.edu/~viscomp/projects/LF/papers/SIGASIA16/
+2. `Stanford`: http://lightfields.stanford.edu/LF2016.html
+
+After then, modify the paths in  `component/dataset/LytroDataset.py` to the corresponding locations, e.g. `Stanford` and `SIGASIA16`, and run the following command:
 ```bash
 python prepare_dataset.py
 ```
